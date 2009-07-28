@@ -31,7 +31,7 @@ define :database_request do
   include_recipe "database"
   
   node[:database] ||= Mash.new
-  node[:database][:requests] ||= []
+  node[:database][:requests] ||= Mash.new
   node[:database][:requests][database_name] ||= Mash.new
   node[:database][:requests][database_name][:username] = username
   node[:database][:requests][database_name][:password] = password
