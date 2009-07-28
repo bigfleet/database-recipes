@@ -2,17 +2,100 @@
 # Cookbook Name:: database
 # Recipe:: default
 #
-# Copyright 2009, Example Com
+# Copyright 2009, Jim Van Fleet
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
 # 
-#     http://www.apache.org/licenses/LICENSE-2.0
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 # 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+# Two cases to prepare for:
+
+# DB Node registers with Chef
+# I log in, validate the node, instruct it "apply the database role to yourself"
+# DB Node complies, setting a root password
+# DB Node asks "any nodes have applications out there I need to configure myself for?"
+# Server says "nope" seeing no nodes
+# Run ends
+
+# DB Node runs chef-client
+# DB node asks "any nodes have applications out there I need to configure myself for?"
+# Server, seeing node with <name-of-rails-app>, says "yes, this one"
+# DB node generates appropriate user, database, and grants, flushing privileges.
+# Run ends
+
+include_recipe "mysql::server"
+
+ 
+Gem.clear_paths
+require 'mysql'
+
+Chef::Log.info "Assessing need for root DB user passwd change"
+
+execute "mysql-root-privileges" do
+  command "/usr/bin/mysql -u root -p#{node[:mysql][:server_root_password]} < /etc/mysql/root.sql"
+  action :nothing
+end
+
+template "/etc/mysql/root.sql" do
+  source "root.sql.erb"
+  owner "root"
+  group "root"
+  mode "0600"
+  notifies :run, resources(:execute => "mysql-root-privileges"), :immediately
+end
+
+# FIXME: narrow scope to requested databases, be agnostic about what they're for
+Chef::Log.info "Allowing database access for application use"
+applications = []
+application_nodes = search(:node, "db_apps_names:*")
+application_nodes.select{ |rslt| rslt[:db_apps][:names] && !rslt[:db_apps][:names].empty? }.each do |hash|
+  hash[:db_apps][:names].each do |app_name|
+    unless applications.include?(app_name)
+      Chef::Log.info "Considering database for application: #{app_name}"
+      db_name = hash[:railsapps][app_name][:db][:database_stem]
+      %w{staging production}.each do |env|
+        Chef::Log.info "Allowing database existence for application use: #{db_name}_#{env}"
+        execute "create #{app_name} #{env} database" do
+          command "/usr/bin/mysqladmin -u root -p#{node[:mysql][:server_root_password]} create #{db_name}_#{env}"
+          not_if do
+            m = Mysql.new("localhost", "root", node[:mysql][:server_root_password])
+            m.list_dbs.include?(db_name+"_"+env)
+          end
+        end
+      end
+      Chef::Log.info "Allowing database access for application use: #{app_name}"
+      execute "mysql-app-privileges" do
+        command "/usr/bin/mysql -u root -p#{node[:mysql][:server_root_password]} < /etc/mysql/#{app_name}-grants.sql"
+        action :nothing
+      end
+
+      template "/etc/mysql/#{app_name}-grants.sql" do
+        source "grants.sql.erb"
+        owner "root"
+        group "root"
+        mode "0600"
+        variables(
+          :user     => hash[:railsapps][app_name][:db][:user],
+          :password => hash[:railsapps][app_name][:db][:password],
+          :database => hash[:railsapps][app_name][:db][:database_stem]
+        )
+        notifies :run, resources(:execute => "mysql-app-privileges"), :immediately
+      end 
+      applications << app_name
+    end
+  end 
+end
