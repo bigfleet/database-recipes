@@ -62,7 +62,7 @@ end
 Chef::Log.info "Fulfilling database requests"
 
 requesting_nodes = search(:node, "database_requests:*")
-application_nodes.select{ |rslt| rslt[:database][:requests] && !rslt[:database][:requests].empty? }.each do |hash|
+requesting_nodes.select{ |rslt| rslt[:database][:requests] && !rslt[:database][:requests].empty? }.each do |hash|
   rslt[:database][:requests].each do |database_mash|
     Chef::Log.info "Considering database for application: #{database_mash.inspect}"
     db_name = database_mash.keys.first
