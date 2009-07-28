@@ -1,6 +1,7 @@
-maintainer       "Example Com"
-maintainer_email "ops@example.com"
-license          "Apache 2.0"
-description      "Installs/Configures database"
-long_description IO.read(File.join(File.dirname(__FILE__), 'README.rdoc'))
-version          ""
+name    "database"
+description 'Additional setup on top of mysql::server to ensure security and availability to apps'
+depends "mysql::server"
+depends "apt"
+depends "gems"
+maintainer 'Jim Van Fleet'
+maintainer_email 'jvanfleet@tradeking.com'
