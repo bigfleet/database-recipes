@@ -39,6 +39,10 @@
 
 include_recipe "mysql::server"
 
+# Broadcast this as a database location.  If there are multiples, let client cookbooks
+# sort it out.
+
+node[:database][:location] = `hostname -f`.downcase.strip
  
 Gem.clear_paths
 require 'mysql'
