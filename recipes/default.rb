@@ -59,43 +59,43 @@ template "/etc/mysql/root.sql" do
 end
 
 # FIXME: narrow scope to requested databases, be agnostic about what they're for
-Chef::Log.info "Allowing database access for application use"
-applications = []
-application_nodes = search(:node, "db_apps_names:*")
-application_nodes.select{ |rslt| rslt[:db_apps][:names] && !rslt[:db_apps][:names].empty? }.each do |hash|
-  hash[:db_apps][:names].each do |app_name|
-    unless applications.include?(app_name)
-      Chef::Log.info "Considering database for application: #{app_name}"
-      db_name = hash[:railsapps][app_name][:db][:database_stem]
-      %w{staging production}.each do |env|
-        Chef::Log.info "Allowing database existence for application use: #{db_name}_#{env}"
-        execute "create #{app_name} #{env} database" do
-          command "/usr/bin/mysqladmin -u root -p#{node[:mysql][:server_root_password]} create #{db_name}_#{env}"
-          not_if do
-            m = Mysql.new("localhost", "root", node[:mysql][:server_root_password])
-            m.list_dbs.include?(db_name+"_"+env)
-          end
-        end
-      end
-      Chef::Log.info "Allowing database access for application use: #{app_name}"
-      execute "mysql-app-privileges" do
-        command "/usr/bin/mysql -u root -p#{node[:mysql][:server_root_password]} < /etc/mysql/#{app_name}-grants.sql"
-        action :nothing
-      end
+Chef::Log.info "Fulfilling database requests"
 
-      template "/etc/mysql/#{app_name}-grants.sql" do
-        source "grants.sql.erb"
-        owner "root"
-        group "root"
-        mode "0600"
-        variables(
-          :user     => hash[:railsapps][app_name][:db][:user],
-          :password => hash[:railsapps][app_name][:db][:password],
-          :database => hash[:railsapps][app_name][:db][:database_stem]
-        )
-        notifies :run, resources(:execute => "mysql-app-privileges"), :immediately
-      end 
-      applications << app_name
+requesting_nodes = search(:node, "database_requests:*")
+application_nodes.select{ |rslt| rslt[:database][:requests] && !rslt[:database][:requests].empty? }.each do |hash|
+  rslt[:database][:requests].each do |database_mash|
+    Chef::Log.info "Considering database for application: #{database_mash.inspect}"
+    db_name = database_mash.keys.first
+    username = database_mash[db_name][:username]
+    password = database_mash[db_name][:password]
+
+    Chef::Log.info "Allowing database existence for application use: #{db_name}_#{env}"
+    execute "create #{db_name} database" do
+      command "/usr/bin/mysqladmin -u root -p#{node[:mysql][:server_root_password]} create #{db_name}"
+      not_if do
+        m = Mysql.new("localhost", "root", node[:mysql][:server_root_password])
+        m.list_dbs.include?(db_name)
+      end
     end
+
+    Chef::Log.info "Allowing database access for application use: #{db_name}"
+    execute "mysql-app-privileges" do
+      command "/usr/bin/mysql -u root -p#{node[:mysql][:server_root_password]} < /etc/mysql/#{db_name}-grants.sql"
+      action :nothing
+    end
+
+    template "/etc/mysql/#{db_name}-grants.sql" do
+      source "grants.sql.erb"
+      owner "root"
+      group "root"
+      mode "0600"
+      variables(
+        :user     => username,
+        :password => password,
+        :database => db_name
+      )
+      notifies :run, resources(:execute => "mysql-app-privileges"), :immediately
+    end 
+
   end 
 end
