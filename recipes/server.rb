@@ -67,8 +67,8 @@ end
 Chef::Log.info "Fulfilling database requests"
 
 requesting_nodes = search(:node, "database_requests:*")
-requesting_nodes.select{ |rslt| rslt[:database][:requests] && !rslt[:database][:requests].empty? }.each do |array|
-  # This hashifies the arrays we get, since we're not sure what the nested keys will be.
+requesting_nodes.select{ |rslt| rslt[:database][:requests] && !rslt[:database][:requests].empty? }.each do |search_rslt|
+  array = search_rslt[:database][:requests]
   hsh = {}
   array.each do |elt|
     compound_key = elt.first
