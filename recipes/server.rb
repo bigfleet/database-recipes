@@ -67,14 +67,24 @@ end
 Chef::Log.info "Fulfilling database requests"
 
 requesting_nodes = search(:node, "database_requests:*")
-requesting_nodes.select{ |rslt| rslt[:database][:requests] && !rslt[:database][:requests].empty? }.each do |hash|
-  hash[:database][:requests].each do |database_mash|
-    Chef::Log.info "Considering database for application: #{database_mash.inspect}"
-    db_name = database_mash.keys.first
-    username = database_mash[db_name][:username]
-    password = database_mash[db_name][:password]
+requesting_nodes.select{ |rslt| rslt[:database][:requests] && !rslt[:database][:requests].empty? }.each do |array|
+  # This hashifies the arrays we get, since we're not sure what the nested keys will be.
+  hsh = {}
+  array.each do |elt|
+    compound_key = elt.first
+    value = elt.last
+    request_db, key = compound_key.split("_")
+    hsh[request_db] ||= {}
+    hsh[request_db][key] = value
+  end
+  Chef::Log.info "Database requests, in full: #{hsh.inspect}"
+  hsh.each do |key, attrs|
+    Chef::Log.info "Considering database for application: #{key}"
+    db_name = key
+    username = attrs["username"]
+    password = attrs["password"]
 
-    Chef::Log.info "Allowing database existence for application use: #{db_name}_#{env}"
+    Chef::Log.info "Allowing database existence for application use: #{db_name}"
     execute "create #{db_name} database" do
       command "/usr/bin/mysqladmin -u root -p#{node[:mysql][:server_root_password]} create #{db_name}"
       not_if do
